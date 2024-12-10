@@ -1,0 +1,248 @@
+import sys
+import sqlite3
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QListWidget, QPushButton, QLabel, QMessageBox, QDialog, QFormLayout, QLineEdit
+
+class StaffInterface(QWidget):
+    def __init__(self, database):
+        super().__init__()
+        self.setWindowTitle("Интерфейс для Персонала")
+        self.setGeometry(100, 100, 800, 600)
+
+        self.database = database
+        self.layout = QVBoxLayout()
+
+        self.tab_widget = QTabWidget()
+        self.init_order_management()
+        self.init_menu_management()
+        self.init_stock_management()
+
+        self.layout.addWidget(self.tab_widget)
+        self.setLayout(self.layout)
+
+        self.initialize_menu()  # Инициализация меню с предустановленными блюдами
+
+    def initialize_menu(self):
+        predefined_dishes = [
+            ("Паста", 250, "Вкусная паста с соусом", "Основное блюдо"),
+            ("Салат Цезарь", 200, "Салат с курицей и пармезаном", "Салаты"),
+            ("Чизкейк", 150, "Нежный чизкейк с ягодами", "Десерты"),
+            ("Кофе", 100, "Ароматный черный кофе", "Напитки")
+        ]
+
+        for name, price, description, category in predefined_dishes:
+            self.database.add_dish(name, price, description, category)
+
+    def init_order_management(self):
+        order_tab = QWidget()
+        order_layout = QVBoxLayout()
+
+        self.order_list = QListWidget()
+        self.order_list.addItems(["Заказ 1", "Заказ 2"])  # Пример заказов
+
+        order_button = QPushButton("Создать новый заказ")
+        order_button.clicked.connect(self.create_order)
+
+        order_layout.addWidget(QLabel("Заказы:"))
+        order_layout.addWidget(self.order_list)
+        order_layout.addWidget(order_button)
+
+        order_tab.setLayout(order_layout)
+        self.tab_widget.addTab(order_tab, "Управление заказами")
+
+    def init_menu_management(self):
+        menu_tab = QWidget()
+        menu_layout = QVBoxLayout()
+
+        self.menu_list = QListWidget()
+        self.load_menu()
+
+        add_dish_button = QPushButton("Добавить блюдо")
+        add_dish_button.clicked.connect(self.add_dish)
+
+        edit_dish_button = QPushButton("Редактировать блюдо")
+        edit_dish_button.clicked.connect(self.edit_dish)
+
+        delete_dish_button = QPushButton("Удалить блюдо")
+        delete_dish_button.clicked.connect(self.delete_dish)
+
+        menu_layout.addWidget(QLabel("Меню:"))
+        menu_layout.addWidget(self.menu_list)
+        menu_layout.addWidget(add_dish_button)
+        menu_layout.addWidget(edit_dish_button)
+        menu_layout.addWidget(delete_dish_button)
+
+        menu_tab.setLayout(menu_layout)
+        self.tab_widget.addTab(menu_tab, "Управление меню")
+
+    def load_menu(self):
+        self.menu_list.clear()
+        dishes = self.database.get_menu()
+        for dish in dishes:
+            self.menu_list.addItem(f"{dish[1]} - {dish[2]}₽ ({dish[3]}, {dish[4]})")
+
+    def add_dish(self):
+        dialog = DishDialog(self.database, self.load_menu)
+        dialog.exec()
+
+    def edit_dish(self):
+        selected_item = self.menu_list.currentItem()
+        if selected_item:
+            dish_id = selected_item.text().split()[0]  # Предполагаем, что ID является частью текста
+            dialog = DishDialog(self.database, self.load_menu, dish_id)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите блюдо для редактирования.")
+
+    def delete_dish(self):
+        selected_item = self.menu_list.currentItem()
+        if selected_item:
+            dish_id = selected_item.text().split()[0]  # Предполагаем, что ID является частью текста
+            self.database.delete_dish(dish_id)
+            self.load_menu()
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите блюдо для удаления.")
+
+    def init_stock_management(self):
+        stock_tab = QWidget()
+        stock_layout = QVBoxLayout()
+
+        self.stock_list = QListWidget()
+        self.load_stock()
+
+        add_stock_button = QPushButton("Добавить ингредиент")
+        add_stock_button.clicked.connect(self.add_stock)
+
+        update_stock_button = QPushButton("Обновить количество")
+        update_stock_button.clicked.connect(self.update_stock)
+
+        stock_layout.addWidget(QLabel("Запасы:"))
+        stock_layout.addWidget(self.stock_list)
+        stock_layout.addWidget(add_stock_button)
+        stock_layout.addWidget(update_stock_button)
+
+        stock_tab.setLayout(stock_layout)
+        self.tab_widget.addTab(stock_tab, "Управление запасами")
+
+    def load_stock(self):
+        self.stock_list.clear()
+        ingredients = self.database.get_stock()
+        for ingredient in ingredients:
+            self.stock_list.addItem(f"{ingredient[1]} - {ingredient[2]} шт")  # Название ингредиента - Количество
+
+    def add_stock(self):
+        dialog = StockDialog(self.database, self.load_stock)
+        dialog.exec()
+
+    def update_stock(self):
+        selected_item = self.stock_list.currentItem()
+        if selected_item:
+            ingredient_id = selected_item.text().split()[0]  # Предполагаем, что ID является частью текста
+            dialog = StockDialog(self.database, self.load_stock, ingredient_id)
+            dialog.exec()
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите ингредиент для обновления.")
+
+    def create_order(self):
+        QMessageBox.information(self, "Создание заказа", "Здесь будет форма для создания нового заказа.")
+
+class DishDialog(QDialog):
+    def __init__(self, database, load_menu, dish_id=None):
+        super().__init__()
+        self.database = database
+        self.load_menu = load_menu
+        self.dish_id = dish_id
+        self.setWindowTitle("Добавить/Редактировать блюдо")
+        self.setGeometry(100, 100, 300, 200)
+
+        self.layout = QFormLayout()
+        self.name_input = QLineEdit()
+        self.price_input = QLineEdit()
+        self.description_input = QLineEdit()
+        self.category_input = QLineEdit()
+
+        if dish_id:
+            dish = self.database.get_dish(dish_id)
+            self.name_input.setText(dish[1])
+            self.price_input.setText(str(dish[2]))
+            self.description_input.setText(dish[3])
+            self.category_input.setText(dish[4])
+
+        self.layout.addRow("Название:", self.name_input)
+        self.layout.addRow("Цена:", self.price_input)
+        self.layout.addRow("Описание:", self.description_input)
+        self.layout.addRow("Категория:", self.category_input)
+
+        self.save_button = QPushButton("Сохранить")
+        self.save_button.clicked.connect(self.save_dish)
+        self.layout.addWidget(self.save_button)
+
+        self.setLayout(self.layout)
+
+    def save_dish(self):
+        name = self.name_input.text()
+        price = self.price_input.text()
+        description = self.description_input.text()
+        category = self.category_input.text()
+
+        if self.dish_id:
+            self.database.update_dish(self.dish_id, name, price, description, category)
+        else:
+            if self.database.add_dish(name, price, description, category):
+                QMessageBox.information(self, "Успех", "Блюдо добавлено!")
+            else:
+                QMessageBox.warning(self, "Ошибка", "Блюдо с таким названием уже существует.")
+
+        self.load_menu()
+        self.accept()
+
+class StockDialog(QDialog):
+    def __init__(self, database, load_stock, ingredient_id=None):
+        super().__init__()
+        self.database = database
+        self.load_stock = load_stock
+        self.ingredient_id = ingredient_id
+        self.setWindowTitle("Добавить/Обновить ингредиент")
+        self.setGeometry(100, 100, 300, 200)
+
+        self.layout = QFormLayout()
+        self.name_input = QLineEdit()
+        self.quantity_input = QLineEdit()
+
+        if ingredient_id:
+            ingredient = self.database.get_ingredient(ingredient_id)
+            self.name_input.setText(ingredient[1])
+            self.quantity_input.setText(str(ingredient[2]))
+
+        self.layout.addRow("Название:", self.name_input)
+        self.layout.addRow("Количество:", self.quantity_input)
+        self.save_button = QPushButton("Сохранить")
+        self.save_button.clicked.connect(self.save_stock)
+        self.layout.addWidget(self.save_button)
+
+        self.setLayout(self.layout)
+
+    def save_stock(self):
+        name = self.name_input.text()
+        quantity = self.quantity_input.text()
+
+        # Проверка на корректность количества
+        if not quantity.isdigit():
+            QMessageBox.warning(self, "Ошибка", "Количество должно быть целым числом.")
+            return
+
+        quantity = int(quantity)  # Преобразуем строку в целое число
+
+        if self.ingredient_id:
+            self.database.update_ingredient(self.ingredient_id, name, quantity)
+        else:
+            self.database.add_ingredient(name, quantity)
+
+        self.load_stock()
+        self.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    database = Database('app.db')  # Создаем экземпляр базы данных
+    window = StaffInterface(database)  # Передаем базу данных в интерфейс
+    window.show()
+    sys.exit(app.exec())
