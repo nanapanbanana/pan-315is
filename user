@@ -1,0 +1,145 @@
+#user.py
+import sys
+import sqlite3
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QLabel,
+    QLineEdit, QPushButton, QMessageBox, QComboBox, QListWidget
+)
+
+class Database:
+    def __init__(self, db_name='app.db'):
+        self.connection = sqlite3.connect(db_name)
+        self.cursor = self.connection.cursor()
+
+        # Создание таблицы для меню
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS menu (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE,
+                price REAL
+            )
+        ''')
+
+        # Создание таблицы для заказов
+        self.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item TEXT NOT NULL,
+                quantity INTEGER NOT NULL
+            )
+        ''')
+        self.connection.commit()
+
+    def get_menu(self):
+        self.cursor.execute('SELECT * FROM menu')
+        return self.cursor.fetchall()
+
+    def get_orders(self):
+        self.cursor.execute('SELECT * FROM orders')
+        return self.cursor.fetchall()
+
+    def add_order(self, item, quantity):
+        self.cursor.execute('INSERT INTO orders (item, quantity) VALUES (?, ?)', (item, quantity))
+        self.connection.commit()
+
+    def close(self):
+        self.connection.close()
+
+class UserInterface(QWidget):
+    def __init__(self, database):
+        super().__init__()
+        self.database = database
+        self.setWindowTitle("Интерфейс пользователя")
+        self.setGeometry(100, 100, 600, 400)
+
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("Добро пожаловать, пользователь!"))
+
+        self.order_list = QListWidget()
+        layout.addWidget(QLabel("Ваши заказы:"))
+        layout.addWidget(self.order_list)
+
+        self.menu_combo = QComboBox()
+        layout.addWidget(QLabel("Выберите блюдо:"))
+        layout.addWidget(self.menu_combo)
+
+        self.quantity_input = QLineEdit()
+        self.quantity_input.setPlaceholderText("Введите количество")
+        layout.addWidget(self.quantity_input)
+
+        self.load_menu()
+
+        self.order_button = QPushButton("Создать заказ")
+        self.order_button.clicked.connect(self.create_order)
+        layout.addWidget(self.order_button)
+
+        self.edit_button = QPushButton("Редактировать заказ")
+        self.edit_button.clicked.connect(self.edit_order)
+        layout.addWidget(self.edit_button)
+
+        self.delete_button = QPushButton("Удалить заказ")
+        self.delete_button.clicked.connect(self.delete_order)
+        layout.addWidget(self.delete_button)
+
+        self.load_orders()
+
+        self.setLayout(layout)
+
+    def load_menu(self):
+        self.menu_combo.clear()
+        menu_items = self.database.get_menu()
+        for item in menu_items:
+            self.menu_combo.addItem(f"{item[1]} - {item[2]}")  # name - price
+
+    def load_orders(self):
+        self.order_list.clear()
+        orders = self.database.get_orders()  # Получаем заказы из базы данных
+        if not orders:
+            self.order_list.addItem("Нет заказов.")
+        else:
+            for order in orders:
+                self.order_list.addItem(f"Заказ {order[0]}: {order[1]} (Количество: {order[2]})")
+
+    def create_order(self):
+        selected_item = self.menu_combo.currentText()
+        quantity_text = self.quantity_input.text()
+
+        if selected_item and quantity_text.isdigit():
+            quantity = int(quantity_text)
+            try:
+                # Добавляем заказ в таблицу
+                self.database.add_order(selected_item, quantity)
+                QMessageBox.information(self, "Успех", f"Заказ '{selected_item}' (Количество: {quantity}) создан!")
+                self.load_orders()  # Обновляем список заказов
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось создать заказ: {e}")
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите блюдо и введите корректное количество.")
+
+    def edit_order(self):
+        selected_order = self.order_list.currentItem()
+        if selected_order:
+            QMessageBox.information(self, "Информация", f"Редактирование заказа '{selected_order.text()}'")
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите заказ для редактирования.")
+
+    def delete_order(self):
+        selected_order = self.order_list.currentItem()
+        if selected_order:
+            order_id = selected_order.text().split(':')[0].split()[1]  # Извлекаем ID заказа
+            try:
+                self.database.cursor.execute('DELETE FROM orders WHERE id = ?', (order_id,))
+                self.database.connection.commit()
+                QMessageBox.information(self, "Успех", f"Заказ '{selected_order.text()}' удален!")
+                self.load_orders()  # Обновляем список заказов
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось удалить заказ: {e}")
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, выберите заказ для удаления.")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    database = Database('app.db')  # Создаем экземпляр базы данных
+    window = UserInterface(database)  # Передаем базу данных в интерфейс
+    window.show()
+    sys.exit(app.exec())
