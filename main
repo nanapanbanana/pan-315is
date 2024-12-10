@@ -1,0 +1,247 @@
+import sys
+import sqlite3
+from PyQt6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QStackedWidget,
+    QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox
+)
+from stuff import StaffInterface  # Импортируем интерфейс для персонала
+from user import UserInterface  # Импортируем интерфейс для пользователя
+
+
+class Database:
+    def __init__(self):
+        self.connection = sqlite3.connect('app.db')
+        self.cursor = self.connection.cursor()
+
+        # Создание таблицы пользователей
+        self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE,
+                    password TEXT,
+                    full_name TEXT,
+                    role TEXT
+                )
+            ''')
+
+        # Создание таблицы для меню
+        self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS menu (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE,
+                    price REAL,
+                    description TEXT,
+                    category TEXT
+                )
+            ''')
+
+        # Создание таблицы для запасов
+        self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS stock (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ingredient_name TEXT,
+                    quantity INTEGER
+                )
+            ''')
+
+        self.cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS ingredients (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        quantity INTEGER NOT NULL
+                       )
+                   ''')
+        self.connection.commit()
+
+        self.cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS orders (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        item TEXT NOT NULL,
+                        quantity INTEGER NOT NULL
+                            )
+                        ''')
+        self.connection.commit()
+
+    def add_ingredient(self, name, quantity):
+        try:
+            self.cursor.execute('INSERT INTO ingredients (name, quantity) VALUES (?, ?)', (name, quantity))
+            self.connection.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Ошибка при добавлении ингредиента: {e}")
+            return False
+
+    def update_ingredient(self, ingredient_id, name, quantity):
+        try:
+            self.cursor.execute('UPDATE ingredients SET name = ?, quantity = ? WHERE id = ?',
+                                (name, quantity, ingredient_id))
+            self.connection.commit()
+        except sqlite3.Error as e:
+            print(f"Ошибка при обновлении ингредиента: {e}")
+
+    def get_ingredient(self, ingredient_id):
+        self.cursor.execute('SELECT * FROM ingredients WHERE id = ?', (ingredient_id,))
+        return self.cursor.fetchone()
+
+    def get_stock(self):
+        self.cursor.execute('SELECT * FROM ingredients')
+        return self.cursor.fetchall()
+
+    def register_user(self, username, password, full_name, role):
+        try:
+            self.cursor.execute('INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)',
+                                (username, password, full_name, role))
+            self.connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def authenticate_user(self, username, password):
+        self.cursor.execute('SELECT role FROM users WHERE username = ? AND password = ?', (username, password))
+        result = self.cursor.fetchone()
+        return result[0] if result else None
+
+    def get_menu(self):
+        self.cursor.execute('SELECT * FROM menu')
+        return self.cursor.fetchall()
+    def get_orders(self):
+        self.cursor.execute('SELECT * FROM orders')
+        return self.cursor.fetchall()
+
+    def add_dish(self, name, price, description, category):
+        try:
+            self.cursor.execute('INSERT INTO menu (name, price, description, category) VALUES (?, ?, ?, ?)',
+                                (name, price, description, category))
+            self.connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+class AuthApp(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Система авторизации")
+        self.setGeometry(100, 100, 400, 300)
+
+        self.database = Database()
+        self.stacked_widget = QStackedWidget()
+
+        self.init_login_page()
+        self.init_registration_page()
+
+        self.setLayout(QVBoxLayout())
+        self.layout().addWidget(self.stacked_widget)
+
+    def init_login_page(self):
+        login_page = QWidget()
+        layout = QVBoxLayout()
+
+        self.username_login = QLineEdit()
+        self.username_login.setPlaceholderText("Логин")
+        self.password_login = QLineEdit()
+        self.password_login.setPlaceholderText("Пароль")
+        self.password_login.setEchoMode(QLineEdit.EchoMode.Password)
+
+        login_button = QPushButton("Войти")
+        login_button.clicked.connect(self.login)
+
+        register_button = QPushButton("Регистрация")
+        register_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
+
+        layout.addWidget(QLabel("Вход"))
+        layout.addWidget(self.username_login)
+        layout.addWidget(self.password_login)
+        layout.addWidget(login_button)
+        layout.addWidget(register_button)
+
+        login_page.setLayout(layout)
+        self.stacked_widget.addWidget(login_page)
+
+    def init_registration_page(self):
+        registration_page = QWidget()
+        layout = QVBoxLayout()
+
+        self.username_register = QLineEdit()
+        self.username_register.setPlaceholderText("Логин")
+        self.password_register = QLineEdit()
+        self.password_register.setPlaceholderText("Пароль")
+        self.password_register.setEchoMode(QLineEdit.EchoMode.Password)
+        self.full_name_register = QLineEdit()
+        self.full_name_register.setPlaceholderText("ФИО")
+
+        self.role_register = QComboBox()
+        self.role_register.addItems(["Пользователь", "Персонал"])
+
+        register_button = QPushButton("Зарегистрироваться")
+        register_button.clicked.connect(self.register)
+
+        login_button = QPushButton("Уже есть аккаунт? Войти")
+        login_button.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
+
+        layout.addWidget(QLabel("Регистрация"))
+        layout.addWidget(self.username_register)
+        layout.addWidget(self.password_register)
+        layout.addWidget(self.full_name_register)
+        layout.addWidget(QLabel("Роль:"))
+        layout.addWidget(self.role_register)
+        layout.addWidget(register_button)
+        layout.addWidget(login_button)
+
+        registration_page.setLayout(layout)
+        self.stacked_widget.addWidget(registration_page)
+
+    def register(self):
+        username = self.username_register.text()
+        password = self.password_register.text()
+        full_name = self.full_name_register.text()
+        role = self.role_register.currentText()
+
+        if username and password and full_name:
+            if self.database.register_user(username, password, full_name, role):
+                QMessageBox.information(self, "Успех", "Регистрация прошла успешно!")
+                self.stacked_widget.setCurrentIndex(0)
+            else:
+                QMessageBox.warning(self, "Ошибка", "Пользователь с таким логином уже существует.")
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните все поля.")
+
+    def login(self):
+        username = self.username_login.text()
+        password = self.password_login.text()
+
+        if username and password:
+            role = self.database.authenticate_user(username, password)
+            if role:
+                QMessageBox.information(self, "Успех", "Вы успешно вошли в систему!")
+                if role == "Персонал":
+                    self.open_staff_interface()
+                else:
+                    self.open_user_interface()
+            else:
+                QMessageBox.warning(self, "Ошибка", "Неверный логин или пароль.")
+        else:
+            QMessageBox.warning(self, "Ошибка", "Пожалуйста, заполните все поля.")
+
+    def show_error(self, message):
+        """Функция для отображения сообщения об ошибке."""
+        QMessageBox.critical(None, "Ошибка", message)
+
+    def open_staff_interface(self):
+        try:
+            self.staff_window = StaffInterface(self.database)
+            self.staff_window.show()
+        except Exception as e:
+            self.show_error(f"Не удалось открыть интерфейс для персонала: {str(e)}")
+
+    def open_user_interface(self):
+        try:
+            self.user_window = UserInterface(self.database)
+            self.user_window.show()
+        except Exception as e:
+            self.show_error(f"Не удалось открыть интерфейс пользователя: {str(e)}")
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = AuthApp()
+    window.show()
+    sys.exit(app.exec())
